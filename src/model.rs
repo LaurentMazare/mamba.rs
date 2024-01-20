@@ -1,4 +1,3 @@
-#![allow(unused)]
 use crate::constants::*;
 use rayon::prelude::*;
 
@@ -45,7 +44,7 @@ impl<const DIM: usize> RmsNorm<DIM> {
         epsilon: f32,
     ) {
         for (outs, ins) in outs.iter_mut().zip(ins.iter()) {
-            self.forward_one(outs, ins, 1e-5);
+            self.forward_one(outs, ins, epsilon);
         }
     }
 }
@@ -59,12 +58,6 @@ fn add_in_place(a: &mut [f32], b: &[f32]) {
 fn mul_in_place(a: &mut [f32], b: &[f32]) {
     for (a_i, b_i) in a.iter_mut().zip(b) {
         *a_i *= b_i;
-    }
-}
-
-fn exp_in_place(s: &mut [f32]) {
-    for s in s.iter_mut() {
-        *s = s.exp()
     }
 }
 
@@ -190,6 +183,9 @@ impl<const B: usize> State<B> {
 
                     // Weird, what isn't this multiplication combined with x_proj1?
                     layer.dt_proj.forward(&mut self.delta_proj, &self.delta);
+                    for delta_proj in self.delta_proj.iter_mut() {
+                        add_in_place(delta_proj, &layer.dt_proj_bias)
+                    }
                     for s in self.delta_proj.iter_mut() {
                         softplus_in_place(s);
                     }
@@ -213,6 +209,7 @@ impl<const B: usize> State<B> {
                     for b in 0..B {
                         for d_i in 0..D_INNER {
                             self.proj_for_conv[b][d_i] = dot(&self.c[b], &hs[b][d_i])
+                                + layer.d[d_i] * self.proj_for_conv[b][d_i]
                         }
                     }
                 }
