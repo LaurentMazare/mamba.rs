@@ -1,6 +1,8 @@
+#![allow(clippy::needless_range_loop)]
 use crate::constants::*;
 use rayon::prelude::*;
 
+#[repr(C)]
 #[derive(Debug, Clone)]
 pub struct LinearNoBias<const IN: usize, const OUT: usize> {
     w: [[f32; IN]; OUT],
@@ -17,6 +19,8 @@ impl<const IN: usize, const OUT: usize> LinearNoBias<IN, OUT> {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Clone)]
 pub struct RmsNorm<const DIM: usize> {
     w: [f32; DIM],
 }
@@ -78,7 +82,7 @@ fn dot<const B: usize>(v1: &[f32; B], v2: &[f32; B]) -> f32 {
     v1.iter().zip(v2.iter()).map(|(&v1, &v2)| v1 * v2).sum::<f32>()
 }
 
-// See Figure 3, page 8, on https://arxiv.org/pdf/2312.00752.pdf
+#[repr(C)]
 struct BlockWeights {
     norm: RmsNorm<D_MODEL>,
     in_proj1: LinearNoBias<D_MODEL, D_INNER>,
@@ -95,6 +99,7 @@ struct BlockWeights {
     conv1d_bias: [f32; D_INNER],
 }
 
+#[repr(C)]
 pub struct Weights {
     embedding: [[f32; D_MODEL]; VOCAB_SIZE],
     layers: [BlockWeights; N_LAYER],
@@ -144,6 +149,7 @@ impl<const B: usize> State<B> {
             xs.copy_from_slice(&w.embedding[*token]);
         }
 
+        // See Figure 3, page 8, on https://arxiv.org/pdf/2312.00752.pdf
         for ((layer, hs), prev_xs) in
             w.layers.iter().zip(self.hs.iter_mut()).zip(self.prev_xs.iter_mut())
         {

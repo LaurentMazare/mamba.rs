@@ -4,4 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.79"
+memmap2 = "0.9.3"
 rayon = "1.8.1"
