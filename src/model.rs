@@ -170,7 +170,7 @@ impl<const B: usize> State<B> {
                     for d_c in 0..D_CONV {
                         let pos_minus_d_c = (pos + D_CONV - d_c) % D_CONV;
                         for d_i in 0..D_INNER {
-                            proj_for_conv[d_i] =
+                            proj_for_conv[d_i] +=
                                 layer.conv1d_weight[d_c][d_i] * prev_xs[pos_minus_d_c][b][d_i]
                         }
                     }
