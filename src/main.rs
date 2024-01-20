@@ -1,7 +1,10 @@
+#![feature(portable_simd)]
 mod constants;
 mod model;
+mod tokenizer;
 
 use anyhow::Result;
+use std::io::Write;
 
 // This struct is self-referential in a sense as if mmap gets dropped, weights would not be valid
 // anymore.
@@ -34,12 +37,30 @@ fn main() -> Result<()> {
     println!("starting...");
     let mut state = model::State::<1>::new();
     let mmaped_weights = MmapedWeights::from_file("mamba-130m.bin")?;
+    let tokenizer = tokenizer::Tokenizer::from_vocab_file("vocab.json")?;
     let mut next_token = 209;
-    for i in 0..40 {
+    loop {
         state.update(&[next_token], mmaped_weights.weights());
         next_token = argmax(&state.logits()[0]).unwrap();
-        println!("{i} {next_token}");
+
+        // EOS is token-id 0.
+        if next_token == 0 {
+            println!();
+            break;
+        }
+        let next_token = tokenizer.tokens(next_token)?;
+
+        // Hacky decoding, the control characters are shifted by 256.
+        for char in next_token.chars() {
+            let c32 = char as u32;
+            let char = if 256 <= c32 && c32 < 512 {
+                char::from_u32(c32 - 256).unwrap_or(char)
+            } else {
+                char
+            };
+            print!("{char}");
+        }
+        std::io::stdout().flush()?;
     }
-    // println!("{:?}", state.logits());
     Ok(())
 }

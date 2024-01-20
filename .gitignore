@@ -10,3 +10,5 @@ __pycache__
 *~
 .*~
 *.bin
+tokenizer.json
+vocab.json
