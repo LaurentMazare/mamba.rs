@@ -26,13 +26,20 @@ impl MmapedWeights {
     }
 }
 
+fn argmax(v: &[f32]) -> Option<usize> {
+    v.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).map(|v| v.0)
+}
+
 fn main() -> Result<()> {
     println!("starting...");
     let mut state = model::State::<1>::new();
     let mmaped_weights = MmapedWeights::from_file("mamba-130m.bin")?;
-    for _i in 0..1 {
-        state.update(&[209], mmaped_weights.weights());
+    let mut next_token = 209;
+    for i in 0..40 {
+        state.update(&[next_token], mmaped_weights.weights());
+        next_token = argmax(&state.logits()[0]).unwrap();
+        println!("{i} {next_token}");
     }
-    println!("{:?}", state.logits());
+    // println!("{:?}", state.logits());
     Ok(())
 }
