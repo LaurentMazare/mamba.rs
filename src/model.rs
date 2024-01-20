@@ -168,10 +168,9 @@ impl<const B: usize> State<B> {
                 for (b, proj_for_conv) in self.proj_for_conv.iter_mut().enumerate() {
                     proj_for_conv.copy_from_slice(&layer.conv1d_bias);
                     for d_c in 0..D_CONV {
-                        let pos_minus_d_c = (pos + D_CONV - d_c) % D_CONV;
                         for d_i in 0..D_INNER {
-                            proj_for_conv[d_i] +=
-                                layer.conv1d_weight[d_c][d_i] * prev_xs[pos_minus_d_c][b][d_i]
+                            proj_for_conv[d_i] += layer.conv1d_weight[d_c][d_i]
+                                * prev_xs[(d_c + 1 + pos) % D_CONV][b][d_i]
                         }
                     }
                 }
