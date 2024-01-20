@@ -9,7 +9,7 @@ pub struct LinearNoBias<const IN: usize, const OUT: usize> {
 
 impl<const IN: usize, const OUT: usize> LinearNoBias<IN, OUT> {
     // https://github.com/srush/llama2.rs/blob/2ca8f3dc0d4aa945a29700271883af72d9043ef1/src/model.rs#L22
-    pub fn forward<const B: usize>(self: &Self, xout: &mut [[f32; OUT]; B], x: &[[f32; IN]; B]) {
+    pub fn forward<const B: usize>(&self, xout: &mut [[f32; OUT]; B], x: &[[f32; IN]; B]) {
         for (xout, x) in xout.iter_mut().zip(x) {
             xout.par_iter_mut().enumerate().for_each(|(i, v)| {
                 *v = self.w[i].iter().zip(x.iter()).fold(0.0, |acc, (&_w, &_x)| acc + _w * _x);
@@ -112,7 +112,8 @@ pub struct Weights {
 pub struct State<const B: usize> {
     // Persistent state
     hs: [[[[f32; D_STATE]; D_INNER]; B]; N_LAYER],
-    prev_xs: [[[[f32; D_STATE]; B]; D_CONV]; N_LAYER],
+    prev_xs: [[[[f32; D_INNER]; B]; D_CONV]; N_LAYER],
+    pos: usize,
 
     // Temporary variables, pre-allocated and only used in [update]
     xs: [[f32; D_MODEL]; B],
@@ -130,7 +131,9 @@ impl<const B: usize> State<B> {
     pub fn new() -> Self {
         Self {
             hs: [[[[0f32; D_STATE]; D_INNER]; B]; N_LAYER],
-            prev_xs: [[[[0f32; D_STATE]; B]; D_CONV]; N_LAYER],
+            prev_xs: [[[[0f32; D_INNER]; B]; D_CONV]; N_LAYER],
+            pos: 0,
+
             xs: [[0f32; D_MODEL]; B],
             norm_xs: [[0f32; D_MODEL]; B],
             logits: [[0f32; VOCAB_SIZE]; B],
@@ -148,7 +151,9 @@ impl<const B: usize> State<B> {
             xs.copy_from_slice(&w.embedding[*token]);
         }
 
-        for (layer, hs) in w.layers.iter().zip(self.hs.iter_mut()) {
+        for ((layer, hs), prev_xs) in
+            w.layers.iter().zip(self.hs.iter_mut()).zip(self.prev_xs.iter_mut())
+        {
             layer.norm.forward(&mut self.norm_xs, &self.xs, 1e-5);
 
             {
@@ -156,7 +161,22 @@ impl<const B: usize> State<B> {
                 layer.in_proj1.forward(&mut self.proj_for_conv, &self.norm_xs);
                 layer.in_proj2.forward(&mut self.proj_for_silu, &self.norm_xs);
 
-                // TODO: conv1d
+                let pos = self.pos % D_STATE;
+                for b in 0..B {
+                    prev_xs[pos][b].copy_from_slice(&self.proj_for_conv[b])
+                }
+                // Apply the conv1d and put the result in proj_for_conv.
+                for (b, proj_for_conv) in self.proj_for_conv.iter_mut().enumerate() {
+                    proj_for_conv.copy_from_slice(&layer.conv1d_bias);
+                    for d_c in 0..D_CONV {
+                        let pos_minus_d_c = (pos + D_CONV - d_c) % D_CONV;
+                        for d_i in 0..D_INNER {
+                            proj_for_conv[d_i] =
+                                layer.conv1d_weight[d_c][d_i] * prev_xs[pos_minus_d_c][b][d_i]
+                        }
+                    }
+                }
+
                 for s in self.proj_for_conv.iter_mut() {
                     silu_in_place(s)
                 }
@@ -210,6 +230,7 @@ impl<const B: usize> State<B> {
                 add_in_place(xs, norm_xs)
             }
         }
+        self.pos += 1;
 
         w.norm_f.forward(&mut self.norm_xs, &self.xs, 1e-5);
         w.lm_head.forward(&mut self.logits, &self.norm_xs)
