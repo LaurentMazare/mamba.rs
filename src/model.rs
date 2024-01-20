@@ -62,10 +62,27 @@ fn mul_in_place(a: &mut [f32], b: &[f32]) {
     }
 }
 
+fn exp_in_place(s: &mut [f32]) {
+    for s in s.iter_mut() {
+        *s = s.exp()
+    }
+}
+
 fn silu_in_place(s: &mut [f32]) {
     for s in s.iter_mut() {
         *s = *s * (1.0 / (1.0 + (-*s).exp()));
     }
+}
+
+fn softplus_in_place(s: &mut [f32]) {
+    // No softplus threshold here...
+    for s in s.iter_mut() {
+        *s = (s.exp() + 1.).ln()
+    }
+}
+
+fn dot<const B: usize>(v1: &[f32; B], v2: &[f32; B]) -> f32 {
+    v1.iter().zip(v2.iter()).map(|(&v1, &v2)| v1 * v2).sum::<f32>()
 }
 
 // See Figure 3, page 8, on https://arxiv.org/pdf/2312.00752.pdf
@@ -73,10 +90,16 @@ struct BlockWeights {
     norm: RmsNorm<D_MODEL>,
     in_proj1: LinearNoBias<D_MODEL, D_INNER>,
     in_proj2: LinearNoBias<D_MODEL, D_INNER>,
-    x_proj: LinearNoBias<D_INNER, { DT_RANK + D_STATE * 2 }>,
+    x_proj1: LinearNoBias<D_INNER, DT_RANK>,
+    x_proj2: LinearNoBias<D_INNER, D_STATE>,
+    x_proj3: LinearNoBias<D_INNER, D_STATE>,
     dt_proj: LinearNoBias<DT_RANK, D_INNER>,
     dt_proj_bias: [f32; D_INNER],
     out_proj: LinearNoBias<D_INNER, D_MODEL>,
+    a: [[f32; D_STATE]; D_INNER],
+    d: [f32; D_INNER],
+    conv1d_weight: [[f32; D_INNER]; D_CONV],
+    conv1d_bias: [f32; D_INNER],
 }
 
 pub struct Weights {
@@ -87,9 +110,18 @@ pub struct Weights {
 }
 
 pub struct State<const B: usize> {
+    // Persistent state
+    hs: [[[[f32; D_STATE]; D_INNER]; B]; N_LAYER],
+    prev_xs: [[[[f32; D_STATE]; B]; D_CONV]; N_LAYER],
+
+    // Temporary variables, pre-allocated and only used in [update]
     xs: [[f32; D_MODEL]; B],
     norm_xs: [[f32; D_MODEL]; B],
     logits: [[f32; VOCAB_SIZE]; B],
+    delta: [[f32; DT_RANK]; B],
+    delta_proj: [[f32; D_INNER]; B],
+    b: [[f32; D_STATE]; B],
+    c: [[f32; D_STATE]; B],
     proj_for_conv: [[f32; D_INNER]; B],
     proj_for_silu: [[f32; D_INNER]; B],
 }
@@ -97,9 +129,15 @@ pub struct State<const B: usize> {
 impl<const B: usize> State<B> {
     pub fn new() -> Self {
         Self {
+            hs: [[[[0f32; D_STATE]; D_INNER]; B]; N_LAYER],
+            prev_xs: [[[[0f32; D_STATE]; B]; D_CONV]; N_LAYER],
             xs: [[0f32; D_MODEL]; B],
             norm_xs: [[0f32; D_MODEL]; B],
             logits: [[0f32; VOCAB_SIZE]; B],
+            delta: [[0f32; DT_RANK]; B],
+            delta_proj: [[0f32; D_INNER]; B],
+            b: [[0f32; D_STATE]; B],
+            c: [[0f32; D_STATE]; B],
             proj_for_conv: [[0f32; D_INNER]; B],
             proj_for_silu: [[0f32; D_INNER]; B],
         }
@@ -110,7 +148,7 @@ impl<const B: usize> State<B> {
             xs.copy_from_slice(&w.embedding[*token]);
         }
 
-        for layer in w.layers.iter() {
+        for (layer, hs) in w.layers.iter().zip(self.hs.iter_mut()) {
             layer.norm.forward(&mut self.norm_xs, &self.xs, 1e-5);
 
             {
@@ -122,7 +160,42 @@ impl<const B: usize> State<B> {
                 for s in self.proj_for_conv.iter_mut() {
                     silu_in_place(s)
                 }
-                // TODO: ssm
+                {
+                    // SSM + Selection, we're doing inference here so only need the last step of
+                    // the sequence.
+                    // Algorithm 3.2 on page 6, https://arxiv.org/pdf/2312.00752.pdf
+                    layer.x_proj1.forward(&mut self.delta, &self.proj_for_conv);
+                    layer.x_proj2.forward(&mut self.b, &self.proj_for_conv);
+                    layer.x_proj3.forward(&mut self.c, &self.proj_for_conv);
+
+                    // Weird, what isn't this multiplication combined with x_proj1?
+                    layer.dt_proj.forward(&mut self.delta_proj, &self.delta);
+                    for s in self.delta_proj.iter_mut() {
+                        softplus_in_place(s);
+                    }
+
+                    // Selective scan part
+                    for b in 0..B {
+                        // Eqn (2a), page 3, h_t = Ab h_{t-1} + Bb x_t
+                        for d_i in 0..D_INNER {
+                            let delta = self.delta_proj[b][d_i];
+                            let x = self.proj_for_conv[b][d_i];
+                            for d_s in 0..D_STATE {
+                                let a = layer.a[d_i][d_s];
+                                let b_ = self.b[b][d_s];
+                                hs[b][d_i][d_s] =
+                                    hs[b][d_i][d_s] * (delta * a).exp() + delta * b_ * x;
+                            }
+                        }
+                    }
+                    // Put the result back in proj_for_conv
+                    // y_t = c * h_t
+                    for b in 0..B {
+                        for d_i in 0..D_INNER {
+                            self.proj_for_conv[b][d_i] = dot(&self.c[b], &hs[b][d_i])
+                        }
+                    }
+                }
 
                 for (s_out, s_in) in self.proj_for_silu.iter_mut().zip(self.proj_for_conv.iter()) {
                     silu_in_place(s_out);
