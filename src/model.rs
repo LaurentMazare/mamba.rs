@@ -162,7 +162,7 @@ impl<const B: usize> State<B> {
 
                 let pos = self.pos % D_STATE;
                 for b in 0..B {
-                    prev_xs[pos][b].copy_from_slice(&self.proj_for_conv[b])
+                    prev_xs[pos % D_CONV][b].copy_from_slice(&self.proj_for_conv[b])
                 }
                 // Apply the conv1d and put the result in proj_for_conv.
                 for (b, proj_for_conv) in self.proj_for_conv.iter_mut().enumerate() {

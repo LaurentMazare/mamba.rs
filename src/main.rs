@@ -30,7 +30,9 @@ fn main() -> Result<()> {
     println!("starting...");
     let mut state = model::State::<1>::new();
     let mmaped_weights = MmapedWeights::from_file("mamba-130m.bin")?;
-    state.update(&[0], mmaped_weights.weights());
+    for _i in 0..1 {
+        state.update(&[0], mmaped_weights.weights());
+    }
     println!("{:?}", state.logits());
     Ok(())
 }
