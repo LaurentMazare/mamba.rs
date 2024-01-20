@@ -10,6 +10,11 @@ args = parser.parse_args()
 
 ckpt_file = hf_hub_download(repo_id=args.repo, filename=args.ckpt_file)
 ckpt = torch.load(ckpt_file)
+def get_tensor(name: str, exp_shape):
+    tensor = ckpt[name]
+    if tensor.shape != exp_shape:
+        raise ValueError("unexpected shape for {name}, {tensor.shape} <> {exp_shape}")
+    return tensor
 # for k, v in ckpt.items(): print(k, v.shape)
 
 n_layers = 0
@@ -19,7 +24,7 @@ for k in ckpt:
         n_layers = max(n_layers, layer_id + 1)
 print(f"n_layers: {n_layers}")
 
-VOCAB_SIZE = 50277
+VOCAB_SIZE = 50280 # padded to a multiple of 8, should be 50277 otherwise
 N_LAYER = 24
 D_MODEL = 768
 D_INNER = D_MODEL * 2
@@ -40,38 +45,48 @@ with open(args.out, "wb") as fobj:
         fobj.write(memoryview(t))
 
     # Let's hope that everything will be properly aligned...
-    write_buffer(ckpt["backbone.embedding.weight"])
+    t = get_tensor("backbone.embedding.weight", (VOCAB_SIZE, D_MODEL))
+    write_buffer(t)
     for layer_id in range(n_layers):
         prefix = f"backbone.layers.{layer_id}"
         # norm (D_MODEL,)
-        write_buffer(ckpt[f"{prefix}.norm.weight"])
+        t = get_tensor(f"{prefix}.norm.weight", (D_MODEL,))
+        write_buffer(t)
         # in_proj{1,2} (D_MODEL, D_INNER).T * 2
-        in_projs = ckpt[f"{prefix}.mixer.in_proj.weight"].chunk(2, dim=0)
+        in_projs = get_tensor(f"{prefix}.mixer.in_proj.weight", (D_INNER * 2, D_MODEL))
+        in_projs = in_projs.chunk(2, dim=0)
         write_buffer(in_projs[0])
         write_buffer(in_projs[1])
         # x_proj{1,2,3} (D_INNER, DT_RANK).T (D_INNER, D_STATE).T * 2
-        x_projs = ckpt[f"{prefix}.mixer.x_proj.weight"]
-        if x_projs.shape != (DT_RANK + 2 * D_STATE, D_INNER):
-            raise ValueError(f"unexpected shape for {prefix}.mixer.x_proj.weight {x_projs.shape}")
+        x_projs = get_tensor(f"{prefix}.mixer.x_proj.weight", (DT_RANK + 2*D_STATE, D_INNER))
         write_buffer(x_projs[:DT_RANK])
         write_buffer(x_projs[DT_RANK:DT_RANK + D_STATE])
         write_buffer(x_projs[DT_RANK + D_STATE:])
         # dt_proj (DT_RANK, D_INNER).T
-        write_buffer(ckpt[f"{prefix}.mixer.dt_proj.weight"])
+        t = get_tensor(f"{prefix}.mixer.dt_proj.weight", (D_INNER, DT_RANK))
+        write_buffer(t)
         # dt_proj_bias (D_INNER,)
-        write_buffer(ckpt[f"{prefix}.mixer.dt_proj.bias"])
+        t = get_tensor(f"{prefix}.mixer.dt_proj.bias", (D_INNER,))
+        write_buffer(t)
         # out_proj (D_INNER, D_MODEL).T
-        write_buffer(ckpt[f"{prefix}.mixer.out_proj.weight"])
+        t = get_tensor(f"{prefix}.mixer.out_proj.weight", (D_MODEL, D_INNER))
+        write_buffer(t)
         # a (D_INNER, D_STATE) exp().neg()
-        write_buffer(ckpt[f"{prefix}.mixer.A_log"].exp().neg())
+        t = get_tensor(f"{prefix}.mixer.A_log", (D_INNER, D_STATE))
+        write_buffer(t.exp().neg())
         # d (D_INNER,)
-        write_buffer(ckpt[f"{prefix}.mixer.D"])
+        t = get_tensor(f"{prefix}.mixer.D", (D_INNER,))
+        write_buffer(t)
         # conv1d_weight (D_CONV, D_INNER)
-        write_buffer(ckpt[f"{prefix}.mixer.conv1d.weight"].squeeze(1).T)
+        t = get_tensor(f"{prefix}.mixer.conv1d.weight", (D_INNER, 1, D_CONV))
+        write_buffer(t.squeeze(1).T)
         # conv1d_bias (D_INNER,)
-        write_buffer(ckpt[f"{prefix}.mixer.conv1d.bias"])
-    write_buffer(ckpt["backbone.norm_f.weight"])
-    write_buffer(ckpt["lm_head.weight"])
+        t = get_tensor(f"{prefix}.mixer.conv1d.bias", (D_INNER,))
+        write_buffer(t)
+    t = get_tensor("backbone.norm_f.weight", (D_MODEL,))
+    write_buffer(t)
+    t = get_tensor("lm_head.weight", (VOCAB_SIZE, D_MODEL))
+    write_buffer(t)
 
 
 # Typical layout
