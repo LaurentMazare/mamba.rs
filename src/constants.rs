@@ -21,16 +21,16 @@ pub mod params_790m {
 
 pub mod params_1_4b {
     // https://huggingface.co/state-spaces/mamba-1.4b/blob/main/config.json
-    pub const D_MODEL: usize = 1536;
+    pub const D_MODEL: usize = 2048;
     pub const N_LAYER: usize = 48;
-    pub const MODEL_FILENAME: &str = "mamba-1_4b.bin";
+    pub const MODEL_FILENAME: &str = "mamba-1.4b.bin";
 }
 
 pub mod params_2_8b {
     // https://huggingface.co/state-spaces/mamba-2.8b/blob/main/config.json
     pub const D_MODEL: usize = 2560;
     pub const N_LAYER: usize = 64;
-    pub const MODEL_FILENAME: &str = "mamba-2_8b.bin";
+    pub const MODEL_FILENAME: &str = "mamba-2.8b.bin";
 }
 
 pub const VOCAB_SIZE_: usize = 50277;
