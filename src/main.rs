@@ -3,6 +3,21 @@ mod constants;
 mod model;
 mod token_output_stream;
 
+#[cfg(feature = "370m")]
+use model::model_370m as m;
+
+#[cfg(feature = "790m")]
+use model::model_790m as m;
+
+#[cfg(feature = "1_4b")]
+use model::model_1_4b as m;
+
+#[cfg(feature = "2_8b")]
+use model::model_2_8b as m;
+
+#[cfg(not(any(feature = "370m", feature = "790m", feature = "1_4b", feature = "2_8b")))]
+use model::model_130m as m;
+
 use anyhow::{Error as E, Result};
 use rand::{distributions::Distribution, SeedableRng};
 use std::io::Write;
@@ -16,7 +31,7 @@ const TEMPERATURE: Option<f64> = Some(0.7);
 struct MmapedWeights {
     #[allow(dead_code)]
     mmap: memmap2::Mmap,
-    weights: &'static model::Weights,
+    weights: &'static m::Weights,
 }
 
 impl MmapedWeights {
@@ -25,17 +40,17 @@ impl MmapedWeights {
         let p = p.as_ref();
         let file = std::fs::File::open(p)?;
         let file_len = file.metadata()?.len();
-        let expected_len = std::mem::size_of::<model::Weights>() as u64;
+        let expected_len = std::mem::size_of::<m::Weights>() as u64;
         if file_len != expected_len {
             anyhow::bail!("Unexpected length of file for {p:?}, {file_len} <> {expected_len}")
         }
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         // the dodgy bit.
-        let weights = unsafe { &*(mmap.as_ptr() as *const model::Weights) };
+        let weights = unsafe { &*(mmap.as_ptr() as *const m::Weights) };
         Ok(Self { mmap, weights })
     }
 
-    fn weights(&self) -> &model::Weights {
+    fn weights(&self) -> &m::Weights {
         self.weights
     }
 }
@@ -43,10 +58,10 @@ impl MmapedWeights {
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     let prompt = if args.len() < 2 { " ".to_string() } else { args[1].clone() };
-    let mut state = model::State::<1>::new();
-    let mmaped_weights = MmapedWeights::from_file(constants::MODEL_FILENAME)?;
-    println!("state size:  {:4}MB", std::mem::size_of::<model::State<1>>() >> 20);
-    println!("weight size: {:4}MB", std::mem::size_of::<model::Weights>() >> 20);
+    let mut state = m::State::<1>::new();
+    let mmaped_weights = MmapedWeights::from_file(m::MODEL_FILENAME)?;
+    println!("state size:  {:4}MB", std::mem::size_of::<m::State<1>>() >> 20);
+    println!("weight size: {:4}MB", std::mem::size_of::<m::Weights>() >> 20);
     let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(E::msg)?;
     let mut tokenizer = TokenOutputStream::new(tokenizer);
     let mut lp = LogitsProcessor::new(299792458, TEMPERATURE);
