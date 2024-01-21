@@ -1,10 +1,12 @@
-#![feature(portable_simd)]
+// #![feature(portable_simd)]
 mod constants;
 mod model;
-mod tokenizer;
+mod token_output_stream;
 
 use anyhow::Result;
 use std::io::Write;
+use token_output_stream::TokenOutputStream;
+use tokenizers::Tokenizer;
 
 // This struct is self-referential in a sense as if mmap gets dropped, weights would not be valid
 // anymore.
@@ -37,30 +39,37 @@ fn main() -> Result<()> {
     println!("starting...");
     let mut state = model::State::<1>::new();
     let mmaped_weights = MmapedWeights::from_file("mamba-130m.bin")?;
-    let tokenizer = tokenizer::Tokenizer::from_vocab_file("vocab.json")?;
+    let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(anyhow::Error::msg)?;
+    let mut tokenizer = TokenOutputStream::new(tokenizer);
+    let eos_token = match tokenizer.get_token("<|endoftext|>") {
+        Some(token) => token,
+        None => anyhow::bail!("cannot find the </s> token"),
+    };
     let mut next_token = 209;
+    let start_gen = std::time::Instant::now();
+    let mut generated_tokens = 0usize;
     loop {
         state.update(&[next_token], mmaped_weights.weights());
         next_token = argmax(&state.logits()[0]).unwrap();
+        generated_tokens += 1;
 
-        // EOS is token-id 0.
-        if next_token == 0 {
+        if next_token == eos_token as usize {
             println!();
             break;
         }
-        let next_token = tokenizer.tokens(next_token)?;
-
-        // Hacky decoding, the control characters are shifted by 256.
-        for char in next_token.chars() {
-            let c32 = char as u32;
-            let char = if 256 <= c32 && c32 < 512 {
-                char::from_u32(c32 - 256).unwrap_or(char)
-            } else {
-                char
-            };
-            print!("{char}");
+        if let Some(t) = tokenizer.next_token(next_token as u32)? {
+            print!("{t}");
+            std::io::stdout().flush()?;
         }
-        std::io::stdout().flush()?;
     }
+    let dt = start_gen.elapsed();
+    if let Some(rest) = tokenizer.decode_rest().map_err(anyhow::Error::msg)? {
+        print!("{rest}");
+    }
+    std::io::stdout().flush()?;
+    println!(
+        "\n{generated_tokens} tokens generated ({:.2} token/s)",
+        generated_tokens as f64 / dt.as_secs_f64(),
+    );
     Ok(())
 }

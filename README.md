@@ -6,7 +6,7 @@ implementation of mamba, for inference only on CPU.
 
 ```bash
 # Download the tokenizer config.
-wget https://huggingface.co/EleutherAI/gpt-neox-20b/raw/main/vocab.json
+wget https://huggingface.co/EleutherAI/gpt-neox-20b/raw/main/tokenizer.json
 
 # Generate the weight files.
 python get_weights.py
