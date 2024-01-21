@@ -8,8 +8,6 @@ use rand::{distributions::Distribution, SeedableRng};
 use std::io::Write;
 use tokenizers::Tokenizer;
 
-const TEMPERATURE: Option<f64> = Some(0.7);
-
 // This struct is self-referential in a sense as if mmap gets dropped, weights would not be valid
 // anymore.
 struct MmapedWeights<W: ModelWeights + 'static> {
@@ -62,27 +60,31 @@ struct Args {
     /// The model size to use.
     #[arg(long, default_value = "130m")]
     which: Which,
+
+    /// The temperature used for sampling, 0 for argmax.
+    #[arg(long, default_value = "0.7")]
+    temperature: f64,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
     match args.which {
-        Which::M130m => run::<model::model_130m::Weights>(args.prompt),
-        Which::M370m => run::<model::model_370m::Weights>(args.prompt),
-        Which::M790m => run::<model::model_790m::Weights>(args.prompt),
-        Which::M1_4b => run::<model::model_1_4b::Weights>(args.prompt),
-        Which::M2_8b => run::<model::model_2_8b::Weights>(args.prompt),
+        Which::M130m => run::<model::model_130m::Weights>(args.prompt, args.temperature),
+        Which::M370m => run::<model::model_370m::Weights>(args.prompt, args.temperature),
+        Which::M790m => run::<model::model_790m::Weights>(args.prompt, args.temperature),
+        Which::M1_4b => run::<model::model_1_4b::Weights>(args.prompt, args.temperature),
+        Which::M2_8b => run::<model::model_2_8b::Weights>(args.prompt, args.temperature),
     }
 }
 
-fn run<W: ModelWeights + 'static>(prompt: String) -> Result<()> {
+fn run<W: ModelWeights + 'static>(prompt: String, temperature: f64) -> Result<()> {
     let mut state = Box::new(W::new_state::<1>());
     let mmaped_weights: MmapedWeights<W> = MmapedWeights::from_file(W::MODEL_FILENAME)?;
     println!("state size:  {:4}MB", std::mem::size_of::<W::State<1>>() >> 20);
     println!("weight size: {:4}MB", std::mem::size_of::<W>() >> 20);
     let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(E::msg)?;
     let mut tokenizer = TokenOutputStream::new(tokenizer);
-    let mut lp = LogitsProcessor::new(299792458, TEMPERATURE);
+    let mut lp = LogitsProcessor::new(299792458, temperature);
     let eos_token = match tokenizer.get_token("<|endoftext|>") {
         Some(token) => token,
         None => anyhow::bail!("cannot find the </s> token"),
@@ -133,8 +135,8 @@ pub struct LogitsProcessor {
 }
 
 impl LogitsProcessor {
-    pub fn new(seed: u64, temperature: Option<f64>) -> Self {
-        let temperature = if temperature.map_or(true, |v| v < 1e-7) { None } else { temperature };
+    pub fn new(seed: u64, temperature: f64) -> Self {
+        let temperature = if temperature < 1e-7 { None } else { Some(temperature) };
         Self { rng: rand::rngs::StdRng::seed_from_u64(seed), temperature }
     }
 
