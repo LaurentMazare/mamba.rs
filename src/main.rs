@@ -69,12 +69,12 @@ fn main() -> Result<()> {
     let start_gen = std::time::Instant::now();
     let mut generated_tokens = 0usize;
     loop {
-        let next_token = lp.sample(&state.logits()[0])? as u32;
+        let next_token = lp.sample(&state.logits()[0])?;
         if next_token == eos_token {
             println!();
             break;
         }
-        if let Some(t) = tokenizer.next_token(next_token as u32)? {
+        if let Some(t) = tokenizer.next_token(next_token)? {
             print!("{t}");
             std::io::stdout().flush()?;
         }
