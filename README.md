@@ -23,15 +23,15 @@ cargo run --release -- "Mamba is"
 
 ![Mamba Is](media/mamba.gif)
 
-This uses the [130m mamba model weights](https://huggingface.co/state-spaces/mamba-130m),
-this is a really small model so the generated text might not be great.
+By default this uses the [130m model](https://huggingface.co/state-spaces/mamba-130m).
+As it is a really small model, the generated text might not be great.
 
 Alternatively to use the 370m model instead of the 130m one, use the following.
-(other variants are `790m`, `1.4b`, and `2.4b`).
 ```bash
 python get_weights.py --which 370m
 cargo run --release -- "Mamba is" --which 370m
 ```
+Other variants are `790m`, `1.4b`, and `2.4b`.
 
 Current features:
 

@@ -1,5 +1,4 @@
 #![allow(clippy::needless_range_loop)]
-#![allow(unused)]
 use crate::constants::*;
 use rayon::prelude::*;
 
@@ -118,6 +117,6 @@ pub mod model_1_4b {
 
 pub mod model_2_8b {
     use super::*;
-    pub use params_1_4b::*;
+    pub use params_2_8b::*;
     include!("model_inc.rs");
 }

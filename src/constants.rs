@@ -1,4 +1,3 @@
-#![allow(unused)]
 pub mod params_130m {
     // https://huggingface.co/state-spaces/mamba-130m/blob/main/config.json
     pub const D_MODEL: usize = 768;
