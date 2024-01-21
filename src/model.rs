@@ -144,9 +144,9 @@ impl<const B: usize> State<B> {
         }
     }
 
-    pub fn update(&mut self, tokens: &[usize; B], w: &Weights) {
+    pub fn update(&mut self, tokens: &[u32; B], w: &Weights) {
         for (xs, token) in self.xs.iter_mut().zip(tokens) {
-            xs.copy_from_slice(&w.embedding[*token]);
+            xs.copy_from_slice(&w.embedding[*token as usize]);
         }
 
         // See Figure 3, page 8, on https://arxiv.org/pdf/2312.00752.pdf

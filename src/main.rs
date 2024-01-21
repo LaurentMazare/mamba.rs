@@ -3,7 +3,7 @@ mod constants;
 mod model;
 mod token_output_stream;
 
-use anyhow::Result;
+use anyhow::{Error as E, Result};
 use std::io::Write;
 use token_output_stream::TokenOutputStream;
 use tokenizers::Tokenizer;
@@ -36,24 +36,33 @@ fn argmax(v: &[f32]) -> Option<usize> {
 }
 
 fn main() -> Result<()> {
-    println!("starting...");
+    let args = std::env::args().collect::<Vec<_>>();
+    let prompt = if args.len() < 2 { " ".to_string() } else { args[1].clone() };
     let mut state = model::State::<1>::new();
     let mmaped_weights = MmapedWeights::from_file("mamba-130m.bin")?;
-    let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(anyhow::Error::msg)?;
+    let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(E::msg)?;
     let mut tokenizer = TokenOutputStream::new(tokenizer);
     let eos_token = match tokenizer.get_token("<|endoftext|>") {
         Some(token) => token,
         None => anyhow::bail!("cannot find the </s> token"),
     };
-    let mut next_token = 209;
+    println!("processing prompt '{prompt}'");
+    let prompt_tokens =
+        tokenizer.tokenizer().encode(prompt, true).map_err(E::msg)?.get_ids().to_vec();
+
+    for &t in prompt_tokens.iter() {
+        state.update(&[t], mmaped_weights.weights());
+        if let Some(t) = tokenizer.next_token(t)? {
+            print!("{t}")
+        }
+    }
+    std::io::stdout().flush()?;
+
     let start_gen = std::time::Instant::now();
     let mut generated_tokens = 0usize;
     loop {
-        state.update(&[next_token], mmaped_weights.weights());
-        next_token = argmax(&state.logits()[0]).unwrap();
-        generated_tokens += 1;
-
-        if next_token == eos_token as usize {
+        let next_token = argmax(&state.logits()[0]).unwrap() as u32;
+        if next_token == eos_token {
             println!();
             break;
         }
@@ -61,9 +70,12 @@ fn main() -> Result<()> {
             print!("{t}");
             std::io::stdout().flush()?;
         }
+
+        state.update(&[next_token], mmaped_weights.weights());
+        generated_tokens += 1;
     }
     let dt = start_gen.elapsed();
-    if let Some(rest) = tokenizer.decode_rest().map_err(anyhow::Error::msg)? {
+    if let Some(rest) = tokenizer.decode_rest().map_err(E::msg)? {
         print!("{rest}");
     }
     std::io::stdout().flush()?;
