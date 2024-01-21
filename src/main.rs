@@ -22,7 +22,13 @@ struct MmapedWeights {
 impl MmapedWeights {
     /// This function is unsafe as it uses mmap and doesn't check the file size.
     fn from_file<P: AsRef<std::path::Path>>(p: P) -> Result<Self> {
+        let p = p.as_ref();
         let file = std::fs::File::open(p)?;
+        let file_len = file.metadata()?.len();
+        let expected_len = std::mem::size_of::<model::Weights>() as u64;
+        if file_len != expected_len {
+            anyhow::bail!("Unexpected length of file for {p:?}, {file_len} <> {expected_len}")
+        }
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         // the dodgy bit.
         let weights = unsafe { &*(mmap.as_ptr() as *const model::Weights) };
@@ -39,6 +45,8 @@ fn main() -> Result<()> {
     let prompt = if args.len() < 2 { " ".to_string() } else { args[1].clone() };
     let mut state = model::State::<1>::new();
     let mmaped_weights = MmapedWeights::from_file("mamba-130m.bin")?;
+    println!("state size:  {:4}MB", std::mem::size_of::<model::State<1>>() >> 20);
+    println!("weight size: {:4}MB", std::mem::size_of::<model::Weights>() >> 20);
     let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(E::msg)?;
     let mut tokenizer = TokenOutputStream::new(tokenizer);
     let mut lp = LogitsProcessor::new(299792458, TEMPERATURE);

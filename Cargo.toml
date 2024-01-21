@@ -10,3 +10,10 @@ rand = "0.8.5"
 rayon = "1.8.1"
 serde_json = "1.0.111"
 tokenizers = { version = "0.15.0", default-features = false, features = ["onig"] }
+
+[features]
+370m = []
+790m = []
+1_4b = []
+2_8b = []
+
