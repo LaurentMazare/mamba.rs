@@ -4,9 +4,12 @@ mod model;
 mod token_output_stream;
 
 use anyhow::{Error as E, Result};
+use rand::{distributions::Distribution, SeedableRng};
 use std::io::Write;
 use token_output_stream::TokenOutputStream;
 use tokenizers::Tokenizer;
+
+const TEMPERATURE: Option<f64> = Some(0.7);
 
 // This struct is self-referential in a sense as if mmap gets dropped, weights would not be valid
 // anymore.
@@ -31,10 +34,6 @@ impl MmapedWeights {
     }
 }
 
-fn argmax(v: &[f32]) -> Option<usize> {
-    v.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).map(|v| v.0)
-}
-
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     let prompt = if args.len() < 2 { " ".to_string() } else { args[1].clone() };
@@ -42,6 +41,7 @@ fn main() -> Result<()> {
     let mmaped_weights = MmapedWeights::from_file("mamba-130m.bin")?;
     let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(E::msg)?;
     let mut tokenizer = TokenOutputStream::new(tokenizer);
+    let mut lp = LogitsProcessor::new(299792458, TEMPERATURE);
     let eos_token = match tokenizer.get_token("<|endoftext|>") {
         Some(token) => token,
         None => anyhow::bail!("cannot find the </s> token"),
@@ -61,7 +61,7 @@ fn main() -> Result<()> {
     let start_gen = std::time::Instant::now();
     let mut generated_tokens = 0usize;
     loop {
-        let next_token = argmax(&state.logits()[0]).unwrap() as u32;
+        let next_token = lp.sample(&state.logits()[0])? as u32;
         if next_token == eos_token {
             println!();
             break;
@@ -84,4 +84,52 @@ fn main() -> Result<()> {
         generated_tokens as f64 / dt.as_secs_f64(),
     );
     Ok(())
+}
+
+pub struct LogitsProcessor {
+    rng: rand::rngs::StdRng,
+    temperature: Option<f64>,
+}
+
+impl LogitsProcessor {
+    pub fn new(seed: u64, temperature: Option<f64>) -> Self {
+        let temperature = if temperature.map_or(true, |v| v < 1e-7) { None } else { temperature };
+        Self { rng: rand::rngs::StdRng::seed_from_u64(seed), temperature }
+    }
+
+    fn sample_argmax(&mut self, logits: &[f32]) -> Result<u32> {
+        let next_token = logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, u), (_, v)| u.total_cmp(v))
+            .map(|(i, _)| i as u32)
+            .unwrap();
+        Ok(next_token)
+    }
+
+    fn sample_multinomial(&mut self, prs: &[f32]) -> Result<u32> {
+        let distr = rand::distributions::WeightedIndex::new(prs)?;
+        let next_token = distr.sample(&mut self.rng) as u32;
+        Ok(next_token)
+    }
+
+    pub fn sample(&mut self, logits: &[f32; constants::VOCAB_SIZE]) -> Result<u32> {
+        let next_token = match self.temperature {
+            None => self.sample_argmax(logits)?,
+            Some(temperature) => {
+                let max_logit = logits.iter().max_by(|f1, f2| f1.total_cmp(f2)).unwrap();
+                let mut prs = [0f32; constants::VOCAB_SIZE];
+                let mut sum_pr = 0f32;
+                for (pr, logit) in prs.iter_mut().zip(logits.iter()) {
+                    *pr = ((logit - max_logit) / temperature as f32).exp();
+                    sum_pr += *pr;
+                }
+                for pr in prs.iter_mut() {
+                    *pr /= sum_pr
+                }
+                self.sample_multinomial(&prs)?
+            }
+        };
+        Ok(next_token)
+    }
 }
