@@ -1,14 +1,11 @@
 // #![feature(portable_simd)]
-mod constants;
-mod model;
-mod token_output_stream;
-
 use anyhow::{Error as E, Result};
 use clap::{Parser, ValueEnum};
-use model::ModelWeights;
+use mamba::model::ModelWeights;
+use mamba::token_output_stream::TokenOutputStream;
+use mamba::{constants, model};
 use rand::{distributions::Distribution, SeedableRng};
 use std::io::Write;
-use token_output_stream::TokenOutputStream;
 use tokenizers::Tokenizer;
 
 const TEMPERATURE: Option<f64> = Some(0.7);

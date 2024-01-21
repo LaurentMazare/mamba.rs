@@ -10,3 +10,11 @@ rand = "0.8.5"
 rayon = "1.8.1"
 tokenizers = { version = "0.15.0", default-features = false, features = ["onig"] }
 clap = { version = "4.2.4", features = ["derive"] }
+
+[lib]
+name = "mamba"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mamba"
+path = "src/main.rs"

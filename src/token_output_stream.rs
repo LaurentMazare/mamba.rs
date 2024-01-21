@@ -1,4 +1,3 @@
-#![allow(unused)]
 use anyhow::Result;
 
 /// This is a wrapper around a tokenizer to ensure that tokens can be returned to the user in a

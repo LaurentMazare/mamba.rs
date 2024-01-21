@@ -183,3 +183,9 @@ impl ModelWeights for Weights {
         state.logits()
     }
 }
+
+impl<const B: usize> Default for State<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
