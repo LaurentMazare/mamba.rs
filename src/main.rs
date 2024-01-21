@@ -3,22 +3,9 @@ mod constants;
 mod model;
 mod token_output_stream;
 
-#[cfg(feature = "370m")]
-use model::model_370m as m;
-
-#[cfg(feature = "790m")]
-use model::model_790m as m;
-
-#[cfg(feature = "1_4b")]
-use model::model_1_4b as m;
-
-#[cfg(feature = "2_8b")]
-use model::model_2_8b as m;
-
-#[cfg(not(any(feature = "370m", feature = "790m", feature = "1_4b", feature = "2_8b")))]
-use model::model_130m as m;
-
 use anyhow::{Error as E, Result};
+use clap::{Parser, ValueEnum};
+use model::ModelWeights;
 use rand::{distributions::Distribution, SeedableRng};
 use std::io::Write;
 use token_output_stream::TokenOutputStream;
@@ -28,40 +15,73 @@ const TEMPERATURE: Option<f64> = Some(0.7);
 
 // This struct is self-referential in a sense as if mmap gets dropped, weights would not be valid
 // anymore.
-struct MmapedWeights {
+struct MmapedWeights<W: ModelWeights + 'static> {
     #[allow(dead_code)]
     mmap: memmap2::Mmap,
-    weights: &'static m::Weights,
+    weights: &'static W,
 }
 
-impl MmapedWeights {
+impl<W: ModelWeights> MmapedWeights<W> {
     /// This function is unsafe as it uses mmap and doesn't check the file size.
     fn from_file<P: AsRef<std::path::Path>>(p: P) -> Result<Self> {
         let p = p.as_ref();
         let file = std::fs::File::open(p)?;
         let file_len = file.metadata()?.len();
-        let expected_len = std::mem::size_of::<m::Weights>() as u64;
+        let expected_len = std::mem::size_of::<W>() as u64;
         if file_len != expected_len {
             anyhow::bail!("Unexpected length of file for {p:?}, {file_len} <> {expected_len}")
         }
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         // the dodgy bit.
-        let weights = unsafe { &*(mmap.as_ptr() as *const m::Weights) };
+        let weights = unsafe { &*(mmap.as_ptr() as *const W) };
         Ok(Self { mmap, weights })
     }
 
-    fn weights(&self) -> &m::Weights {
+    fn weights(&self) -> &W {
         self.weights
     }
 }
 
+#[derive(Clone, Debug, Copy, PartialEq, Eq, ValueEnum)]
+enum Which {
+    #[value(name = "130m")]
+    M130m,
+    #[value(name = "370m")]
+    M370m,
+    #[value(name = "790m")]
+    M790m,
+    #[value(name = "1.4b")]
+    M1_4b,
+    #[value(name = "2.8b")]
+    M2_8b,
+}
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    prompt: String,
+
+    /// The model size to use.
+    #[arg(long, default_value = "130m")]
+    which: Which,
+}
+
 fn main() -> Result<()> {
-    let args = std::env::args().collect::<Vec<_>>();
-    let prompt = if args.len() < 2 { " ".to_string() } else { args[1].clone() };
-    let mut state = m::State::<1>::new();
-    let mmaped_weights = MmapedWeights::from_file(m::MODEL_FILENAME)?;
-    println!("state size:  {:4}MB", std::mem::size_of::<m::State<1>>() >> 20);
-    println!("weight size: {:4}MB", std::mem::size_of::<m::Weights>() >> 20);
+    let args = Args::parse();
+    match args.which {
+        Which::M130m => run::<model::model_130m::Weights>(args.prompt),
+        Which::M370m => run::<model::model_370m::Weights>(args.prompt),
+        Which::M790m => run::<model::model_790m::Weights>(args.prompt),
+        Which::M1_4b => run::<model::model_1_4b::Weights>(args.prompt),
+        Which::M2_8b => run::<model::model_2_8b::Weights>(args.prompt),
+    }
+}
+
+fn run<W: ModelWeights + 'static>(prompt: String) -> Result<()> {
+    let mut state = W::new_state::<1>();
+    let mmaped_weights: MmapedWeights<W> = MmapedWeights::from_file(W::MODEL_FILENAME)?;
+    println!("state size:  {:4}MB", std::mem::size_of::<W::State<1>>() >> 20);
+    println!("weight size: {:4}MB", std::mem::size_of::<W>() >> 20);
     let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(E::msg)?;
     let mut tokenizer = TokenOutputStream::new(tokenizer);
     let mut lp = LogitsProcessor::new(299792458, TEMPERATURE);
@@ -74,7 +94,7 @@ fn main() -> Result<()> {
         tokenizer.tokenizer().encode(prompt, true).map_err(E::msg)?.get_ids().to_vec();
 
     for &t in prompt_tokens.iter() {
-        state.update(&[t], mmaped_weights.weights());
+        mmaped_weights.weights().update_state(&mut state, &[t]);
         if let Some(t) = tokenizer.next_token(t)? {
             print!("{t}")
         }
@@ -84,7 +104,7 @@ fn main() -> Result<()> {
     let start_gen = std::time::Instant::now();
     let mut generated_tokens = 0usize;
     loop {
-        let next_token = lp.sample(&state.logits()[0])?;
+        let next_token = lp.sample(&W::state_logits(&state)[0])?;
         if next_token == eos_token {
             println!();
             break;
@@ -94,7 +114,7 @@ fn main() -> Result<()> {
             std::io::stdout().flush()?;
         }
 
-        state.update(&[next_token], mmaped_weights.weights());
+        mmaped_weights.weights().update_state(&mut state, &[next_token]);
         generated_tokens += 1;
     }
     let dt = start_gen.elapsed();

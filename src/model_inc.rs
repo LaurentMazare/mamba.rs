@@ -166,3 +166,20 @@ impl<const B: usize> State<B> {
         &self.logits
     }
 }
+
+impl ModelWeights for Weights {
+    type State<const B: usize> = State<B>;
+    const MODEL_FILENAME: &'static str = MODEL_FILENAME;
+
+    fn new_state<const B: usize>() -> Self::State<B> {
+        Self::State::new()
+    }
+
+    fn update_state<const B: usize>(&self, state: &mut Self::State<B>, tokens: &[u32; B]) {
+        state.update(tokens, self)
+    }
+
+    fn state_logits<const B: usize>(state: &Self::State<B>) -> &[[f32; VOCAB_SIZE]; B] {
+        state.logits()
+    }
+}

@@ -83,6 +83,15 @@ fn dot<const B: usize>(v1: &[f32; B], v2: &[f32; B]) -> f32 {
     v1.iter().zip(v2.iter()).map(|(&v1, &v2)| v1 * v2).sum::<f32>()
 }
 
+pub trait ModelWeights {
+    type State<const B: usize>;
+    const MODEL_FILENAME: &'static str;
+
+    fn new_state<const B: usize>() -> Self::State<B>;
+    fn update_state<const B: usize>(&self, state: &mut Self::State<B>, tokens: &[u32; B]);
+    fn state_logits<const B: usize>(state: &Self::State<B>) -> &[[f32; VOCAB_SIZE]; B];
+}
+
 pub mod model_130m {
     use super::*;
     pub use params_130m::*;
