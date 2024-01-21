@@ -25,7 +25,8 @@ impl<W: ModelWeights> MmapedWeights<W> {
     /// This function is unsafe as it uses mmap and doesn't check the file size.
     fn from_file<P: AsRef<std::path::Path>>(p: P) -> Result<Self> {
         let p = p.as_ref();
-        let file = std::fs::File::open(p)?;
+        let file = std::fs::File::open(p)
+            .map_err(|e| anyhow::Error::new(e).context(format!("trying to read {p:?}")))?;
         let file_len = file.metadata()?.len();
         let expected_len = std::mem::size_of::<W>() as u64;
         if file_len != expected_len {
