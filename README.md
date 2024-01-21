@@ -11,3 +11,10 @@ wget https://huggingface.co/EleutherAI/gpt-neox-20b/raw/main/tokenizer.json
 # Generate the weight files.
 python get_weights.py
 ```
+
+This uses the [130m mamba model
+weights](https://huggingface.co/state-spaces/mamba-130m), this is a really small
+model so the generated text might not be great.
+
+![Mamba Is](media/mamba.gif)
+
