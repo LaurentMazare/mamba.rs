@@ -79,7 +79,7 @@ fn main() -> Result<()> {
 }
 
 fn run<W: ModelWeights + 'static>(prompt: String) -> Result<()> {
-    let mut state = W::new_state::<1>();
+    let mut state = Box::new(W::new_state::<1>());
     let mmaped_weights: MmapedWeights<W> = MmapedWeights::from_file(W::MODEL_FILENAME)?;
     println!("state size:  {:4}MB", std::mem::size_of::<W::State<1>>() >> 20);
     println!("weight size: {:4}MB", std::mem::size_of::<W>() >> 20);
