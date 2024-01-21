@@ -44,7 +44,7 @@ fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     let prompt = if args.len() < 2 { " ".to_string() } else { args[1].clone() };
     let mut state = model::State::<1>::new();
-    let mmaped_weights = MmapedWeights::from_file("mamba-130m.bin")?;
+    let mmaped_weights = MmapedWeights::from_file(constants::MODEL_FILENAME)?;
     println!("state size:  {:4}MB", std::mem::size_of::<model::State<1>>() >> 20);
     println!("weight size: {:4}MB", std::mem::size_of::<model::Weights>() >> 20);
     let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(E::msg)?;

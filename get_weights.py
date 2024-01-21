@@ -1,19 +1,30 @@
 import argparse
+import json
 import torch
 from huggingface_hub import hf_hub_download
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--repo", type=str, default="state-spaces/mamba-130m")
-parser.add_argument("--ckpt-file", type=str, default="pytorch_model.bin")
-parser.add_argument("--out", type=str, default="mamba-130m.bin")
+parser.add_argument("--which", type=str, default="130m")
+parser.add_argument("--out", type=str)
 args = parser.parse_args()
 
-ckpt_file = hf_hub_download(repo_id=args.repo, filename=args.ckpt_file)
+SUPPORTED_W = ("130m", "370m", "790m", "1.4b", "2.8b")
+if args.which not in SUPPORTED_W:
+    raise ValueError(f"the which argument should be in {SUPPORTED_W}")
+repo_id = f"state-spaces/mamba-{args.which}"
+print(f"getting weights and config from {repo_id}")
+
+config_file = hf_hub_download(repo_id=repo_id, filename="config.json")
+with open(config_file, "r") as f_obj:
+    config = json.load(f_obj)
+print(config)
+
+ckpt_file = hf_hub_download(repo_id=repo_id, filename="pytorch_model.bin")
 ckpt = torch.load(ckpt_file)
 def get_tensor(name: str, exp_shape):
     tensor = ckpt[name]
     if tensor.shape != exp_shape:
-        raise ValueError("unexpected shape for {name}, {tensor.shape} <> {exp_shape}")
+        raise ValueError(f"unexpected shape for {name}, {tensor.shape} <> {exp_shape}")
     return tensor
 # for k, v in ckpt.items(): print(k, v.shape)
 
@@ -25,17 +36,21 @@ for k in ckpt:
 print(f"n_layers: {n_layers}")
 
 VOCAB_SIZE = 50280 # padded to a multiple of 8, should be 50277 otherwise
-N_LAYER = 24
-D_MODEL = 768
+N_LAYER = config["n_layer"]
+D_MODEL = config["d_model"]
 D_INNER = D_MODEL * 2
 D_CONV = 4
 D_STATE = 16
 DT_RANK = (D_MODEL + 15) // 16
 
 if n_layers != N_LAYER:
-    raise ValueError("unexpected number of layers in file, {n_layers} <> {N_LAYER}")
+    raise ValueError(f"unexpected number of layers in file, {n_layers} <> {N_LAYER}")
 
-with open(args.out, "wb") as fobj:
+out_file = args.out
+if out_file is None:
+    out_file = f"mamba-{args.which}.bin"
+print(f"writing model file {out_file}")
+with open(out_file, "wb") as fobj:
     def write_buffer(w: torch.Tensor, cast_to_float: bool = True):
         assert isinstance(w, torch.Tensor)
         t = w.contiguous().view(-1).detach().cpu()
