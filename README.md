@@ -11,8 +11,9 @@ Most of the inspiration for *mamba.rs* (and some of the code) come from
 [llama2.rs](https://github.com/srush/llama2.rs) (by @srush).
 
 ```bash
-# Download the tokenizer config.
-wget https://huggingface.co/EleutherAI/gpt-neox-20b/raw/main/tokenizer.json
+# Download the tokenizer configs.
+wget https://huggingface.co/EleutherAI/gpt-neox-20b/raw/main/vocab.json
+wget https://huggingface.co/EleutherAI/gpt-neox-20b/raw/main/merges.txt
 
 # Download and generate the weight files.
 python get_weights.py

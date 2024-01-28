@@ -1,12 +1,11 @@
 // #![feature(portable_simd)]
-use anyhow::{Error as E, Result};
+use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use mamba::model::ModelWeights;
-use mamba::token_output_stream::TokenOutputStream;
+use mamba::tokenizer::Tokenizer;
 use mamba::{constants, model};
 use rand::{distributions::Distribution, SeedableRng};
 use std::io::Write;
-use tokenizers::Tokenizer;
 
 // This struct is self-referential in a sense as if mmap gets dropped, weights would not be valid
 // anymore.
@@ -82,22 +81,20 @@ fn run<W: ModelWeights + 'static>(prompt: String, temperature: f64) -> Result<()
     let mmaped_weights: MmapedWeights<W> = MmapedWeights::from_file(W::MODEL_FILENAME)?;
     println!("state size:  {:4}MB", std::mem::size_of::<W::State<1>>() >> 20);
     println!("weight size: {:4}MB", std::mem::size_of::<W>() >> 20);
-    let tokenizer = Tokenizer::from_file("tokenizer.json").map_err(E::msg)?;
-    let mut tokenizer = TokenOutputStream::new(tokenizer);
+    let tokenizer = Tokenizer::new("vocab.json", "merges.txt")?;
     let mut lp = LogitsProcessor::new(299792458, temperature);
     let eos_token = match tokenizer.get_token("<|endoftext|>") {
         Some(token) => token,
         None => anyhow::bail!("cannot find the </s> token"),
     };
     println!("processing prompt '{prompt}'");
-    let prompt_tokens =
-        tokenizer.tokenizer().encode(prompt, true).map_err(E::msg)?.get_ids().to_vec();
+    let prompt_tokens = tokenizer.encode(&prompt)?;
+    println!("prompt tokens: {prompt_tokens:?}");
 
-    for &t in prompt_tokens.iter() {
-        mmaped_weights.weights().update_state(&mut state, &[t]);
-        if let Some(t) = tokenizer.next_token(t)? {
-            print!("{t}")
-        }
+    for &token_id in prompt_tokens.iter() {
+        mmaped_weights.weights().update_state(&mut state, &[token_id]);
+        let token_str = tokenizer.decode_token_id(token_id)?;
+        print!("{token_str}")
     }
     std::io::stdout().flush()?;
 
@@ -109,19 +106,12 @@ fn run<W: ModelWeights + 'static>(prompt: String, temperature: f64) -> Result<()
             println!();
             break;
         }
-        if let Some(t) = tokenizer.next_token(next_token)? {
-            print!("{t}");
-            std::io::stdout().flush()?;
-        }
-
+        let next_token_str = tokenizer.decode_token_id(next_token)?;
+        print!("{next_token_str}");
         mmaped_weights.weights().update_state(&mut state, &[next_token]);
         generated_tokens += 1;
     }
     let dt = start_gen.elapsed();
-    if let Some(rest) = tokenizer.decode_rest().map_err(E::msg)? {
-        print!("{rest}");
-    }
-    std::io::stdout().flush()?;
     println!(
         "\n{generated_tokens} tokens generated ({:.2} token/s)",
         generated_tokens as f64 / dt.as_secs_f64(),
