@@ -263,7 +263,6 @@ const BYTES_TO_UNICODE: [(u8, char); 256] = [
 
 const PAT: &str = r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+";
 
-#[allow(unused)]
 pub struct Tokenizer {
     re: fancy_regex::Regex,
     byte_encoder: [char; 256],
